@@ -131,13 +131,13 @@ exports.login = async (req, res, next) => {
     console.log('15. Full token length:', token.length);
     console.log('16. Token format check - has 3 parts:', token.split('.').length === 3);
 
-    // Remove password from output
-    user.password = undefined;
-
-    // Update last login
+    // Update last login - DO THIS FIRST while password is still there
     user.lastLogin = Date.now();
     await user.save();
-    console.log('17. Last login updated');
+    console.log('17. Last login updated successfully');
+
+    // NOW remove password from output (AFTER saving)
+    user.password = undefined;
 
     console.log('18. Sending successful response to client');
     console.log('19. Response data structure:', {
