@@ -220,8 +220,10 @@ async function processPDF(file, userId, uploadId) {
       message: 'Generating AI summary (max 1400 words)...'
     });
 
-    // Generate summary with Gemini (max 1400 words)
-    const summary = await gemini.generateSummary(extractedText, 1400);
+    // Extract the actual text from the returned object
+const extractedTextContent = extractedText.text || extractedText;
+// Generate summary with Gemini (max 1400 words)
+const summary = await gemini.generateSummary(extractedTextContent, 1400);
 
     // Update progress: Generating audio
     uploadProgress.set(uploadId, {
@@ -307,4 +309,5 @@ async function processPDF(file, userId, uploadId) {
     logger.error('PDF processing error:', error);
     throw error;
   }
+
 }
