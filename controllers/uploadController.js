@@ -206,12 +206,18 @@ async function processPDF(file, userId, uploadId) {
       message: 'Extracting text from PDF...'
     });
 
-    // Extract text from PDF
-    const extractedText = await pdfProcessor.extractText(file.path);
+    // Extract text from PDF - this returns an object with text property
+    const extractedData = await pdfProcessor.extractText(file.path);
     
+    // FIX 1: Get the actual text string from the returned object
+    const extractedText = extractedData.text || '';
+    
+    // FIX 2: Check if we have enough text (check the string, not the object)
     if (!extractedText || extractedText.length < 50) {
       throw new Error('Could not extract sufficient text from PDF');
     }
+
+    logger.info(`Extracted ${extractedText.length} characters from PDF`);
 
     // Update progress: Generating summary
     uploadProgress.set(uploadId, {
@@ -220,10 +226,10 @@ async function processPDF(file, userId, uploadId) {
       message: 'Generating AI summary (max 1400 words)...'
     });
 
-    // Extract the actual text from the returned object
-const extractedTextContent = extractedText.text || extractedText;
-// Generate summary with Gemini (max 1400 words)
-const summary = await gemini.generateSummary(extractedTextContent, 1400);
+    // FIX 3: Pass the actual text string to Gemini, not the whole object
+    const summary = await gemini.generateSummary(extractedText, 1400);
+    
+    logger.info(`Generated summary of ${summary.length} characters`);
 
     // Update progress: Generating audio
     uploadProgress.set(uploadId, {
@@ -232,7 +238,7 @@ const summary = await gemini.generateSummary(extractedTextContent, 1400);
       message: 'Creating audio summary...'
     });
 
-    // Generate audio with XTTS
+    // Generate audio with TTS
     const audioBuffer = await xtts.generateAudio(summary);
 
     // Update progress: Uploading to Cloudinary
@@ -263,24 +269,26 @@ const summary = await gemini.generateSummary(extractedTextContent, 1400);
     });
 
     // Calculate audio duration (approx based on word count)
-    const wordCount = summary.split(' ').length;
-    const audioDuration = Math.ceil(wordCount / 150); // 150 words per minute average
+    const wordCount = summary.split(/\s+/).length;
+    const audioDurationSeconds = Math.ceil(wordCount / 150); // 150 words per minute average
+    const minutes = Math.floor(audioDurationSeconds / 60);
+    const seconds = audioDurationSeconds % 60;
 
-    // Save to database
+    // FIX 4: Use extractedData for metadata, and extractedText for word count
     const note = await Note.create({
       user: userId,
       uploadId,
       title: file.originalname.replace('.pdf', ''),
       summary,
-      pages: extractedText.pages || Math.ceil(extractedText.length / 3000),
+      pages: extractedData.pages || 1,
       tags: [], // Auto-tagging could be added later
       pdfUrl: pdfUpload.secure_url,
       audioUrl: audioUpload.secure_url,
-      audioDuration: `${Math.floor(audioDuration / 60)}:${(audioDuration % 60).toString().padStart(2, '0')}`,
+      audioDuration: `${minutes}:${seconds.toString().padStart(2, '0')}`,
       metadata: {
         originalName: file.originalname,
         fileSize: file.size,
-        wordCount: extractedText.split(' ').length,
+        wordCount: extractedData.wordCount || extractedText.split(/\s+/).length,
         processingTime: Date.now()
       }
     });
@@ -307,7 +315,12 @@ const summary = await gemini.generateSummary(extractedTextContent, 1400);
     logger.info(`PDF processed successfully for user ${userId}`);
   } catch (error) {
     logger.error('PDF processing error:', error);
+    // Update progress with error
+    uploadProgress.set(uploadId, {
+      status: 'error',
+      progress: 0,
+      message: error.message || 'Processing failed'
+    });
     throw error;
   }
-
 }
