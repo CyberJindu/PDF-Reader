@@ -1,5 +1,6 @@
 const express = require('express');
 const { body } = require('express-validator');
+const jwt = require('jsonwebtoken'); // Add this import
 const router = express.Router();
 
 // Import controllers
@@ -39,6 +40,82 @@ router.post(
   validate,
   authController.login
 );
+
+/**
+ * @route   GET /api/auth/test-jwt
+ * @desc    Test JWT generation and verification
+ * @access  Public
+ */
+router.get('/test-jwt', (req, res) => {
+  console.log('=== JWT TEST ENDPOINT HIT ===');
+  try {
+    // Check if JWT_SECRET exists
+    if (!process.env.JWT_SECRET) {
+      console.log('JWT_SECRET is MISSING');
+      return res.status(500).json({
+        success: false,
+        message: 'JWT_SECRET is not defined in environment variables',
+        env_check: {
+          jwt_secret_exists: false,
+          node_env: process.env.NODE_ENV
+        }
+      });
+    }
+
+    console.log('JWT_SECRET exists with length:', process.env.JWT_SECRET.length);
+    
+    // Test JWT generation
+    const testToken = jwt.sign(
+      { id: 'test-user-id', test: true }, 
+      process.env.JWT_SECRET,
+      { expiresIn: '1h' }
+    );
+    
+    console.log('Test token generated successfully');
+    console.log('Token preview:', testToken.substring(0, 30) + '...');
+    console.log('Token parts:', testToken.split('.').length);
+
+    // Test JWT verification
+    const decoded = jwt.verify(testToken, process.env.JWT_SECRET);
+    console.log('Token verified successfully');
+    console.log('Decoded payload:', decoded);
+
+    res.json({
+      success: true,
+      message: 'JWT is working correctly',
+      debug_info: {
+        jwt_secret: {
+          exists: true,
+          length: process.env.JWT_SECRET.length,
+          preview: process.env.JWT_SECRET.substring(0, 3) + '...' + process.env.JWT_SECRET.slice(-3)
+        },
+        node_env: process.env.NODE_ENV,
+        token: {
+          preview: testToken.substring(0, 30) + '...',
+          length: testToken.length,
+          parts: testToken.split('.').length
+        },
+        decoded: decoded
+      }
+    });
+  } catch (error) {
+    console.error('JWT test failed:', error);
+    res.status(500).json({
+      success: false,
+      message: 'JWT test failed',
+      error: {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      },
+      env_check: {
+        jwt_secret_exists: !!process.env.JWT_SECRET,
+        jwt_secret_length: process.env.JWT_SECRET ? process.env.JWT_SECRET.length : 0,
+        node_env: process.env.NODE_ENV
+      }
+    });
+  }
+});
 
 /**
  * @route   POST /api/auth/forgot-password
