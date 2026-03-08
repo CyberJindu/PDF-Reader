@@ -25,6 +25,8 @@ const app = express();
 // Security middleware
 app.use(helmet());
 
+app.set('trust proxy', 1);
+
 // CORS configuration
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'https://vitejsviteugtwzjqg-k2do--3000--61636aac.local-credentialless.webcontainer.io',
@@ -101,3 +103,4 @@ process.on('SIGTERM', () => {
 
 
 module.exports = app;
+
