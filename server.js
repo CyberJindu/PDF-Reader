@@ -27,7 +27,7 @@ app.use(helmet());
 
 // CORS configuration
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: process.env.FRONTEND_URL || 'https://vitejsviteugtwzjqg-k2do--3000--61636aac.local-credentialless.webcontainer.io',
   credentials: true
 }));
 
@@ -98,5 +98,6 @@ process.on('SIGTERM', () => {
     process.exit(0);
   });
 });
+
 
 module.exports = app;
