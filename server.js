@@ -27,10 +27,43 @@ app.use(helmet());
 
 app.set('trust proxy', 1);
 
-// CORS configuration
+// CORS configuration - FIXED FOR WEBCONTAINER
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:5173',
+  'https://vitejsviteugtwzjqg-k2do--3000--61636aac.local-credentialless.webcontainer.io',
+  process.env.FRONTEND_URL,
+  /\.webcontainer\.io$/  // This allows ANY webcontainer.io subdomain
+].filter(Boolean);
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'https://vitejsviteugtwzjqg-k2do--3000--61636aac.local-credentialless.webcontainer.io',
-  credentials: true
+  origin: function(origin, callback) {
+    // Allow requests with no origin (like mobile apps, curl, Postman, etc)
+    if (!origin) {
+      return callback(null, true);
+    }
+    
+    // Check if origin is allowed
+    const isAllowed = allowedOrigins.some(allowedOrigin => {
+      if (allowedOrigin instanceof RegExp) {
+        return allowedOrigin.test(origin);
+      }
+      return allowedOrigin === origin;
+    });
+    
+    if (isAllowed) {
+      callback(null, true);
+    } else {
+      logger.warn(`CORS blocked origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  optionsSuccessStatus: 200,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
 // Rate limiting
@@ -101,6 +134,4 @@ process.on('SIGTERM', () => {
   });
 });
 
-
 module.exports = app;
-
