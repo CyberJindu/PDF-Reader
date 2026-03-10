@@ -209,10 +209,10 @@ async function processPDF(file, userId, uploadId) {
     // Extract text from PDF - this returns an object with text property
     const extractedData = await pdfProcessor.extractText(file.path);
     
-    // FIX 1: Get the actual text string from the returned object
+    // Get the actual text string from the returned object
     const extractedText = extractedData.text || '';
     
-    // FIX 2: Check if we have enough text (check the string, not the object)
+    // Check if we have enough text
     if (!extractedText || extractedText.length < 50) {
       throw new Error('Could not extract sufficient text from PDF');
     }
@@ -226,7 +226,7 @@ async function processPDF(file, userId, uploadId) {
       message: 'Generating AI summary (max 1400 words)...'
     });
 
-    // FIX 3: Pass the actual text string to Gemini, not the whole object
+    // Pass the actual text string to Gemini
     const summary = await gemini.generateSummary(extractedText, 1400);
     
     logger.info(`Generated summary of ${summary.length} characters`);
@@ -249,18 +249,18 @@ async function processPDF(file, userId, uploadId) {
     });
 
     // Upload PDF to Cloudinary - using the service method
-const pdfUpload = await cloudinary.uploadFile(file.path, {
-  folder: `pdlist/users/${userId}/pdfs`,
-  resource_type: 'raw',
-  public_id: `${userId}_${Date.now()}_pdf`
-});
+    const pdfUpload = await cloudinary.uploadFile(file.path, {
+      folder: `pdlist/users/${userId}/pdfs`,
+      resource_type: 'raw',
+      public_id: `${userId}_${Date.now()}_pdf`
+    });
 
     // Upload audio to Cloudinary - using the service method
-const audioUpload = await cloudinary.uploadAudio(
-  audioBuffer, 
-  userId, 
-  `${userId}_${Date.now()}_audio`
-);
+    const audioUpload = await cloudinary.uploadAudio(
+      audioBuffer, 
+      userId, 
+      `${userId}_${Date.now()}_audio`
+    );
 
     // Calculate audio duration (approx based on word count)
     const wordCount = summary.split(/\s+/).length;
@@ -268,24 +268,74 @@ const audioUpload = await cloudinary.uploadAudio(
     const minutes = Math.floor(audioDurationSeconds / 60);
     const seconds = audioDurationSeconds % 60;
 
-    // FIX 4: Use extractedData for metadata, and extractedText for word count
+    // DEBUG: Log all values before creating note
+    console.log('=== NOTE CREATION DEBUG ===');
+    console.log('User ID:', userId);
+    console.log('Upload ID:', uploadId);
+    console.log('Title:', file.originalname.replace('.pdf', ''));
+    console.log('Summary length:', summary.length);
+    console.log('Pages:', extractedData.pages || 1);
+    console.log('PDF URL:', pdfUpload.secure_url || pdfUpload.url);
+    console.log('Audio URL:', audioUpload.secure_url || audioUpload.url);
+    console.log('Audio Duration:', `${minutes}:${seconds.toString().padStart(2, '0')}`);
+    console.log('Word Count:', wordCount);
+    console.log('===========================');
+
+    // FIX 1: Truncate summary to fit schema limit (10000 chars)
+    const truncatedSummary = summary.length > 10000 
+      ? summary.substring(0, 9997) + '...' 
+      : summary;
+
+    // FIX 2: Make sure we have the correct URL properties
+    const pdfUrl = pdfUpload.secure_url || pdfUpload.url;
+    const audioUrl = audioUpload.secure_url || audioUpload.url;
+
+    if (!pdfUrl) {
+      throw new Error('PDF URL is missing from Cloudinary response');
+    }
+    if (!audioUrl) {
+      throw new Error('Audio URL is missing from Cloudinary response');
+    }
+
+    // FIX 3: Get public IDs for deletion later
+    const pdfPublicId = pdfUpload.public_id || 
+      (pdfUrl.split('/').pop().split('.')[0]);
+    const audioPublicId = audioUpload.public_id || 
+      (audioUrl.split('/').pop().split('.')[0]);
+
+    // FIX 4: Save to database with ALL required fields
     const note = await Note.create({
       user: userId,
       uploadId,
       title: file.originalname.replace('.pdf', ''),
-      summary,
+      summary: truncatedSummary,
       pages: extractedData.pages || 1,
-      tags: [], // Auto-tagging could be added later
-      pdfUrl: pdfUpload.secure_url,
-      audioUrl: audioUpload.secure_url,
+      tags: [],
+      category: 'uncategorized',
+      isFavorite: false,
+      isArchived: false,
+      pdfUrl: pdfUrl,
+      pdfPublicId: pdfPublicId,
+      audioUrl: audioUrl,
+      audioPublicId: audioPublicId,
       audioDuration: `${minutes}:${seconds.toString().padStart(2, '0')}`,
+      audioSize: audioUpload.bytes || audioBuffer.length,
+      plays: 0,
+      downloads: 0,
+      rating: 0,
       metadata: {
         originalName: file.originalname,
         fileSize: file.size,
-        wordCount: extractedData.wordCount || extractedText.split(/\s+/).length,
-        processingTime: Date.now()
-      }
+        wordCount: extractedData.wordCount || wordCount,
+        characterCount: summary.length,
+        processingTime: Date.now(),
+        modelUsed: 'gemini-2.5-flash',
+        language: 'en'
+      },
+      source: 'upload'
     });
+
+    console.log('✅ Note created successfully with ID:', note._id);
 
     // Clean up temp file
     const fs = require('fs');
@@ -318,4 +368,3 @@ const audioUpload = await cloudinary.uploadAudio(
     throw error;
   }
 }
-
