@@ -248,25 +248,19 @@ async function processPDF(file, userId, uploadId) {
       message: 'Saving your files...'
     });
 
-    // Upload PDF to Cloudinary
-    const pdfUpload = await cloudinary.uploader.upload(file.path, {
-      folder: 'pdlist/pdfs',
-      resource_type: 'raw',
-      public_id: `${userId}_${Date.now()}_pdf`
-    });
+    // Upload PDF to Cloudinary - using the service method
+const pdfUpload = await cloudinary.uploadFile(file.path, {
+  folder: `pdlist/users/${userId}/pdfs`,
+  resource_type: 'raw',
+  public_id: `${userId}_${Date.now()}_pdf`
+});
 
-    // Upload audio to Cloudinary
-    const audioUpload = await new Promise((resolve, reject) => {
-      cloudinary.uploader.upload_stream({
-        folder: 'pdlist/audio',
-        resource_type: 'video',
-        public_id: `${userId}_${Date.now()}_audio`,
-        format: 'mp3'
-      }, (error, result) => {
-        if (error) reject(error);
-        else resolve(result);
-      }).end(audioBuffer);
-    });
+    // Upload audio to Cloudinary - using the service method
+const audioUpload = await cloudinary.uploadAudio(
+  audioBuffer, 
+  userId, 
+  `${userId}_${Date.now()}_audio`
+);
 
     // Calculate audio duration (approx based on word count)
     const wordCount = summary.split(/\s+/).length;
@@ -324,3 +318,4 @@ async function processPDF(file, userId, uploadId) {
     throw error;
   }
 }
+
