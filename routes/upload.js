@@ -31,7 +31,8 @@ router.get(
   '/status/:id',
   protect,
   [
-    param('id').isMongoId().withMessage('Invalid upload ID')
+    // FIX: Remove MongoId validation for status endpoint since uploadId is custom format
+    param('id').notEmpty().withMessage('Upload ID is required')
   ],
   validate,
   uploadController.getUploadStatus
@@ -53,7 +54,7 @@ router.get(
   '/:id',
   protect,
   [
-    param('id').isMongoId().withMessage('Invalid upload ID')
+    param('id').isMongoId().withMessage('Invalid note ID format')
   ],
   validate,
   uploadController.getUpload
@@ -68,7 +69,7 @@ router.delete(
   '/:id',
   protect,
   [
-    param('id').isMongoId().withMessage('Invalid upload ID')
+    param('id').isMongoId().withMessage('Invalid note ID format')
   ],
   validate,
   uploadController.deleteUpload
