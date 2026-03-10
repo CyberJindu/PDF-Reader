@@ -172,15 +172,27 @@ exports.deleteUpload = async (req, res, next) => {
       });
     }
 
-    // Delete files from Cloudinary
-    if (note.pdfUrl) {
-      const pdfPublicId = note.pdfUrl.split('/').pop().split('.')[0];
-      await cloudinary.uploader.destroy(`pdlist/pdfs/${pdfPublicId}`, { resource_type: 'raw' });
+    // Delete files from Cloudinary using the service methods
+    if (note.pdfUrl && note.pdfPublicId) {
+      try {
+        // Use the service's deleteFile method for PDF (raw resource type)
+        await cloudinary.deleteFile(note.pdfPublicId, 'raw');
+        logger.info(`PDF deleted: ${note.pdfPublicId}`);
+      } catch (pdfError) {
+        logger.error('Error deleting PDF from Cloudinary:', pdfError);
+        // Continue with deletion even if Cloudinary delete fails
+      }
     }
 
-    if (note.audioUrl) {
-      const audioPublicId = note.audioUrl.split('/').pop().split('.')[0];
-      await cloudinary.uploader.destroy(`pdlist/audio/${audioPublicId}`, { resource_type: 'video' });
+    if (note.audioUrl && note.audioPublicId) {
+      try {
+        // Use the service's deleteFile method for audio (video resource type)
+        await cloudinary.deleteFile(note.audioPublicId, 'video');
+        logger.info(`Audio deleted: ${note.audioPublicId}`);
+      } catch (audioError) {
+        logger.error('Error deleting audio from Cloudinary:', audioError);
+        // Continue with deletion even if Cloudinary delete fails
+      }
     }
 
     // Delete from database
@@ -188,7 +200,7 @@ exports.deleteUpload = async (req, res, next) => {
 
     res.json({
       success: true,
-      message: 'Note deleted successfully'
+      message: 'Note and associated files deleted successfully'
     });
   } catch (error) {
     logger.error('Delete upload error:', error);
@@ -368,3 +380,4 @@ async function processPDF(file, userId, uploadId) {
     throw error;
   }
 }
+
