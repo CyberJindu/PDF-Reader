@@ -21,7 +21,7 @@ const NoteSchema = new mongoose.Schema({
   summary: {
     type: String,
     required: [true, 'Please provide a summary'],
-    maxlength: [10000, 'Summary cannot exceed 10000 characters']
+    maxlength: [50000, 'Summary cannot exceed 50000 characters']
   },
   pages: {
     type: Number,
