@@ -293,12 +293,9 @@ async function processPDF(file, userId, uploadId) {
     console.log('Word Count:', wordCount);
     console.log('===========================');
 
-    // FIX 1: Truncate summary to fit schema limit (10000 chars)
-    const truncatedSummary = summary.length > 10000 
-      ? summary.substring(0, 9997) + '...' 
-      : summary;
+    const fullSummary = summary; // Use the full summary
 
-    // FIX 2: Make sure we have the correct URL properties
+    //  Make sure we have the correct URL properties
     const pdfUrl = pdfUpload.secure_url || pdfUpload.url;
     const audioUrl = audioUpload.secure_url || audioUpload.url;
 
@@ -309,18 +306,18 @@ async function processPDF(file, userId, uploadId) {
       throw new Error('Audio URL is missing from Cloudinary response');
     }
 
-    // FIX 3: Get public IDs for deletion later
+    // Get public IDs for deletion later
     const pdfPublicId = pdfUpload.public_id || 
       (pdfUrl.split('/').pop().split('.')[0]);
     const audioPublicId = audioUpload.public_id || 
       (audioUrl.split('/').pop().split('.')[0]);
 
-    // FIX 4: Save to database with ALL required fields
+    // Save to database with ALL required fields
     const note = await Note.create({
       user: userId,
       uploadId,
       title: file.originalname.replace('.pdf', ''),
-      summary: truncatedSummary,
+      summary: fullSummary,
       pages: extractedData.pages || 1,
       tags: [],
       category: 'uncategorized',
