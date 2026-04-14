@@ -35,7 +35,8 @@ const allowedOrigins = [
   'http://127.0.0.1:5173',
   'https://vitejsviteugtwzjqg-k2do--3000--61636aac.local-credentialless.webcontainer.io',
   process.env.FRONTEND_URL,
-  /\.webcontainer\.io$/  // This allows ANY webcontainer.io subdomain
+  /\.webcontainer\.io$/,
+  'https://stackblitzstarterslhhckzjs-o2if--3000--4c73681d.local-credentialless.webcontainer.io'
 ].filter(Boolean);
 
 app.use(cors({
