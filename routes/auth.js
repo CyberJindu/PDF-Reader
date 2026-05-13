@@ -42,6 +42,20 @@ router.post(
 );
 
 /**
+ * @route   POST /api/auth/admin/login
+ * @desc    Admin login
+ * @access  Public
+ */
+router.post(
+  '/admin/login',
+  [
+    body('password').notEmpty().withMessage('Password is required')
+  ],
+  validate,
+  authController.adminLogin
+);
+
+/**
  * @route   GET /api/auth/test-jwt
  * @desc    Test JWT generation and verification
  * @access  Public
