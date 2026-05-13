@@ -13,12 +13,17 @@ const authRoutes = require('./routes/auth');
 const uploadRoutes = require('./routes/upload');
 const notesRoutes = require('./routes/notes');
 const healthRoutes = require('./routes/health');
+const adminRoutes = require('./routes/admin');
+const analyticsRoutes = require('./routes/analytics');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');
 
 // Import logger
 const logger = require('./utils/logger');
+
+// Import admin defaults
+const { createDefaultAdmin } = require('./utils/adminDefaults');
 
 const app = express();
 
@@ -84,6 +89,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/notes', notesRoutes);
 app.use('/api/health', healthRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 // Root route
 app.get('/', (req, res) => {
@@ -119,7 +126,10 @@ const connectDB = async () => {
 // Start server
 const PORT = process.env.PORT || 5000;
 
-connectDB().then(() => {
+connectDB().then(async () => {
+  // Create default admin account if none exists
+  await createDefaultAdmin();
+  
   app.listen(PORT, () => {
     logger.info(`PdLis backend running on port ${PORT}`);
     logger.info(`Environment: ${process.env.NODE_ENV}`);
