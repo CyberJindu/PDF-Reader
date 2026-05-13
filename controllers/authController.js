@@ -3,6 +3,8 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { validationResult } = require('express-validator');
 const logger = require('../utils/logger');
+const Admin = require('../models/Admin');
+
 
 // Generate JWT Token
 const generateToken = (id) => {
@@ -343,6 +345,70 @@ exports.getMe = async (req, res, next) => {
     next(error);
   }
 };
+
+
+/**
+ * @desc    Admin login
+ * @route   POST /api/auth/admin/login
+ * @access  Public
+ */
+exports.adminLogin = async (req, res) => {
+  try {
+    const { password } = req.body;
+
+    // Find admin by email (only one admin exists)
+    const admin = await Admin.findOne({ isActive: true });
+    
+    if (!admin) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials'
+      });
+    }
+
+    // Check password
+    const isMatch = await admin.comparePassword(password);
+    
+    if (!isMatch) {
+      // Log failed attempt
+      console.log(`Failed admin login attempt at ${new Date().toISOString()}`);
+      
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials'
+      });
+    }
+
+    // Update last login
+    admin.lastLogin = new Date();
+    await admin.save();
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { id: admin._id, email: admin.email, role: admin.role },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: 'Admin login successful',
+      token,
+      admin: {
+        id: admin._id,
+        email: admin.email,
+        role: admin.role
+      }
+    });
+  } catch (error) {
+    console.error('Admin login error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error during login'
+    });
+  }
+};
+
 
 /**
  * @desc    Logout user
