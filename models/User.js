@@ -62,6 +62,8 @@ const UserSchema = new mongoose.Schema({
     totalUploads: { type: Number, default: 0 },
     totalSummaries: { type: Number, default: 0 },
     totalAudioMinutes: { type: Number, default: 0 },
+    totalDownloads: { type: Number, default: 0 },      // NEW - Track total downloads
+    totalStreams: { type: Number, default: 0 },        // NEW - Track total audio streams
     lastActive: { type: Date, default: Date.now }
   },
   subscription: {
@@ -77,6 +79,23 @@ const UserSchema = new mongoose.Schema({
       allowCustomVoices: { type: Boolean, default: false },
       allowBatchProcessing: { type: Boolean, default: false }
     }
+  },
+  // NEW - Admin overrides for feature locking/unlocking
+  adminOverrides: {
+    featuresUnlocked: { type: Boolean, default: false },  // Admin toggle ON/OFF
+    forcePremium: { type: Boolean, default: false },       // Override subscription
+    notes: { type: String, default: '' }                   // Admin notes about user
+  },
+  // NEW - Daily limits for free tier (20% preview, single audio play)
+  dailyLimits: {
+    audioPlaysToday: { type: Number, default: 0 },
+    summaryPreviewsToday: { type: Number, default: 0 },
+    lastResetDate: { type: Date, default: Date.now }
+  },
+  // NEW - Preview access tracking for monetization
+  previewAccess: {
+    hasSeenFullSummary: { type: Boolean, default: false },  // For 20% rule
+    audioPlayedOnce: { type: Boolean, default: false }      // For single play limit
   },
   resetPasswordToken: String,
   resetPasswordExpire: Date,
@@ -159,10 +178,34 @@ UserSchema.virtual('initials').get(function() {
     .slice(0, 2);
 });
 
+// NEW - Method to check if user has premium access (admin override or subscription)
+UserSchema.methods.hasPremiumAccess = function() {
+  // Check if admin has manually unlocked features
+  if (this.adminOverrides && this.adminOverrides.featuresUnlocked) {
+    return true;
+  }
+  // Check if user has active premium subscription
+  if (this.subscription && this.subscription.plan === 'premium') {
+    if (!this.subscription.validUntil || this.subscription.validUntil > Date.now()) {
+      return true;
+    }
+  }
+  return false;
+};
+
+// NEW - Method to reset daily limits
+UserSchema.methods.resetDailyLimits = function() {
+  this.dailyLimits.audioPlaysToday = 0;
+  this.dailyLimits.summaryPreviewsToday = 0;
+  this.dailyLimits.lastResetDate = new Date();
+  return this.save();
+};
+
 // Indexes
 UserSchema.index({ email: 1 });
 UserSchema.index({ role: 1 });
 UserSchema.index({ 'subscription.plan': 1 });
 UserSchema.index({ createdAt: -1 });
+UserSchema.index({ 'adminOverrides.featuresUnlocked': 1 }); // NEW - For admin queries
 
 module.exports = mongoose.model('User', UserSchema);
