@@ -1,4 +1,5 @@
 const Note = require('../models/Note');
+const User = require('../models/User');
 const pdfProcessor = require('../lib/pdfProcessor');
 const gemini = require('../lib/gemini');
 const xtts = require('../lib/xtts');
@@ -198,6 +199,16 @@ exports.deleteUpload = async (req, res, next) => {
     // Delete from database
     await note.deleteOne();
 
+    // Update user stats - decrement totalSummaries
+    await User.findByIdAndUpdate(userId, {
+      $inc: {
+        'stats.totalSummaries': -1
+      },
+      $set: {
+        'stats.lastActive': new Date()
+      }
+    });
+
     res.json({
       success: true,
       message: 'Note and associated files deleted successfully'
@@ -346,6 +357,18 @@ async function processPDF(file, userId, uploadId) {
 
     console.log('✅ Note created successfully with ID:', note._id);
 
+    // ✅ UPDATE USER STATS - Increment totals
+    await User.findByIdAndUpdate(userId, {
+      $inc: {
+        'stats.totalUploads': 1,
+        'stats.totalSummaries': 1
+      },
+      $set: {
+        'stats.lastActive': new Date()
+      }
+    });
+    console.log('✅ User stats updated - totalSummaries incremented');
+
     // Clean up temp file
     const fs = require('fs');
     fs.unlink(file.path, (err) => {
@@ -377,4 +400,3 @@ async function processPDF(file, userId, uploadId) {
     throw error;
   }
 }
-
