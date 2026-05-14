@@ -17,14 +17,15 @@ exports.getAllUsers = async (req, res) => {
       // Get user's notes stats
       const notes = await Note.find({ user: user._id });
       
-      const totalDownloads = notes.reduce((sum, note) => sum + (note.downloads || 0), 0);
-      const totalStreams = notes.reduce((sum, note) => sum + (note.plays || 0), 0);
+      const totalSummariesCount = notes.length;
+      const totalDownloadsCount = notes.reduce((sum, note) => sum + (note.downloads || 0), 0);
+      const totalStreamsCount = notes.reduce((sum, note) => sum + (note.plays || 0), 0);
       
       return {
         ...user.toObject(),
-        totalSummaries,
-        totalDownloads,
-        totalStreams
+        totalSummaries: totalSummariesCount,
+        totalDownloads: totalDownloadsCount,
+        totalStreams: totalStreamsCount
       };
     }));
 
@@ -37,7 +38,8 @@ exports.getAllUsers = async (req, res) => {
     console.error('Get all users error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error fetching users'
+      message: 'Server error fetching users',
+      error: error.message
     });
   }
 };
