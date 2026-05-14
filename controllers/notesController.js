@@ -1,4 +1,5 @@
 const Note = require('../models/Note');
+const User = require('../models/User');
 const logger = require('../utils/logger');
 
 /**
@@ -69,6 +70,13 @@ exports.getNote = async (req, res, next) => {
     // Increment play count (for analytics)
     note.plays = (note.plays || 0) + 1;
     await note.save();
+
+    // ✅ UPDATE USER STATS - Increment total streams
+    await User.findByIdAndUpdate(userId, {
+      $inc: { 'stats.totalStreams': 1 },
+      $set: { 'stats.lastActive': new Date() }
+    });
+    logger.info(`Audio stream recorded for user ${userId} - totalStreams incremented`);
 
     res.json({
       success: true,
@@ -157,6 +165,13 @@ exports.deleteNote = async (req, res, next) => {
     // Here we just remove from database
 
     await note.deleteOne();
+
+    // ✅ UPDATE USER STATS - Decrement totalSummaries when note is deleted
+    await User.findByIdAndUpdate(userId, {
+      $inc: { 'stats.totalSummaries': -1 },
+      $set: { 'stats.lastActive': new Date() }
+    });
+    logger.info(`Note deleted for user ${userId} - totalSummaries decremented`);
 
     res.json({
       success: true,
@@ -277,6 +292,47 @@ exports.getAllTags = async (req, res, next) => {
     });
   } catch (error) {
     logger.error('Get all tags error:', error);
+    next(error);
+  }
+};
+
+/**
+ * @desc    Increment download count for a note
+ * @route   POST /api/notes/:id/download
+ * @access  Private
+ */
+exports.incrementDownload = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const note = await Note.findOne({ _id: id, user: userId });
+
+    if (!note) {
+      return res.status(404).json({
+        success: false,
+        message: 'Note not found'
+      });
+    }
+
+    // Increment download count
+    note.downloads = (note.downloads || 0) + 1;
+    await note.save();
+
+    // ✅ UPDATE USER STATS - Increment total downloads
+    await User.findByIdAndUpdate(userId, {
+      $inc: { 'stats.totalDownloads': 1 },
+      $set: { 'stats.lastActive': new Date() }
+    });
+    logger.info(`Download recorded for user ${userId} - totalDownloads incremented`);
+
+    res.json({
+      success: true,
+      message: 'Download count incremented',
+      downloads: note.downloads
+    });
+  } catch (error) {
+    logger.error('Increment download error:', error);
     next(error);
   }
 };
