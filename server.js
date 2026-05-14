@@ -34,14 +34,11 @@ app.set('trust proxy', 1);
 
 // CORS configuration - FIXED FOR WEBCONTAINER
 const allowedOrigins = [
-  'http://localhost:3000',
-  'http://localhost:5173',
-  'http://127.0.0.1:3000',
-  'http://127.0.0.1:5173',
   'https://vitejsviteugtwzjqg-k2do--3000--61636aac.local-credentialless.webcontainer.io',
   process.env.FRONTEND_URL,
   /\.webcontainer\.io$/,
-  'https://stackblitzstarterslhhckzjs-o2if--3000--4c73681d.local-credentialless.webcontainer.io'
+  'https://stackblitzstarterslhhckzjs-o2if--3000--4c73681d.local-credentialless.webcontainer.io',
+  'https://stackblitzstartersgbszhjad-gbh5--3000--4c73681d.local-credentialless.webcontainer.io'
 ].filter(Boolean);
 
 app.use(cors({
