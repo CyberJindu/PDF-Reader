@@ -22,6 +22,7 @@ exports.getAllUsers = async (req, res) => {
       
       return {
         ...user.toObject(),
+        totalSummaries,
         totalDownloads,
         totalStreams
       };
