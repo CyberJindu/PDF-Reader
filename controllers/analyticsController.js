@@ -32,21 +32,23 @@ exports.getDashboardMetrics = async (req, res) => {
     // Get total users
     const totalUsers = await User.countDocuments({ role: 'user' });
     
-    // Get total downloads and summaries from notes
+    // Get total downloads and summaries from notes - FIXED AGGREGATION
     const notesAgg = await Note.aggregate([
       {
         $group: {
           _id: null,
           totalDownloads: { $sum: '$downloads' },
-          totalSummaries: { $count: {} }
+          totalSummaries: { $sum: 1 },  // FIXED: $sum: 1 instead of $count: {}
+          totalPlays: { $sum: '$plays' }  // ADDED: Get total audio streams from notes
         }
       }
     ]);
     
     const totalDownloads = notesAgg[0]?.totalDownloads || 0;
     const totalSummaries = notesAgg[0]?.totalSummaries || 0;
+    const totalAudioStreamsFromNotes = notesAgg[0]?.totalPlays || 0;
     
-    // Get total audio streams for time range
+    // Get total audio streams for time range from Analytics collection (if you want time-filtered)
     const audioStreamsData = await Analytics.aggregate([
       {
         $match: {
@@ -62,7 +64,9 @@ exports.getDashboardMetrics = async (req, res) => {
       }
     ]);
     
-    const totalAudioStreams = audioStreamsData[0]?.total || 0;
+    // Use either total from Notes or time-filtered from Analytics
+    // For dashboard, let's use total from Notes (all-time) and also show time-filtered
+    const totalAudioStreams = totalAudioStreamsFromNotes;  // All-time total
     
     // Get premium vs general users
     const premiumUsers = await User.countDocuments({ 
@@ -72,7 +76,7 @@ exports.getDashboardMetrics = async (req, res) => {
     
     const generalUsers = totalUsers - premiumUsers;
     
-    // Get usage trends for chart
+    // Get usage trends for chart - UPDATED to include audio_played
     const usageTrends = await getUsageTrendsData(startDate, timeRange);
     
     res.status(200).json({
@@ -219,7 +223,20 @@ exports.getAudioStreams = async (req, res) => {
         startDate.setDate(now.getDate() - 7);
     }
     
-    const result = await Analytics.aggregate([
+    // Get total plays from Note model (all-time)
+    const totalPlaysAgg = await Note.aggregate([
+      {
+        $group: {
+          _id: null,
+          total: { $sum: '$plays' }
+        }
+      }
+    ]);
+    
+    const allTimeTotal = totalPlaysAgg[0]?.total || 0;
+    
+    // Get time-filtered plays if Analytics collection has data
+    const timeFilteredResult = await Analytics.aggregate([
       {
         $match: {
           action: 'audio_played',
@@ -234,9 +251,12 @@ exports.getAudioStreams = async (req, res) => {
       }
     ]);
     
+    const timeFilteredTotal = timeFilteredResult[0]?.total || 0;
+    
     res.status(200).json({
       success: true,
-      total: result[0]?.total || 0,
+      total: allTimeTotal,  // Send all-time total
+      timeFilteredTotal,    // Optional: send filtered total
       timeRange
     });
   } catch (error) {
@@ -285,7 +305,7 @@ async function getUsageTrendsData(startDate, timeRange) {
     {
       $match: {
         date: { $gte: startDate },
-        action: { $in: ['pdf_upload', 'summary_generated', 'audio_downloaded'] }
+        action: { $in: ['pdf_upload', 'summary_generated', 'audio_downloaded', 'audio_played'] }
       }
     },
     {
@@ -314,6 +334,11 @@ async function getUsageTrendsData(startDate, timeRange) {
           $sum: {
             $cond: [{ $eq: ['$_id.action', 'audio_downloaded'] }, '$count', 0]
           }
+        },
+        streams: {
+          $sum: {
+            $cond: [{ $eq: ['$_id.action', 'audio_played'] }, '$count', 0]
+          }
         }
       }
     },
@@ -324,6 +349,7 @@ async function getUsageTrendsData(startDate, timeRange) {
     name: item._id,
     uploads: item.uploads || 0,
     summaries: item.summaries || 0,
-    downloads: item.downloads || 0
+    downloads: item.downloads || 0,
+    streams: item.streams || 0
   }));
 }
