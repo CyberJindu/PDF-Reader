@@ -2,7 +2,7 @@ const express = require('express');
 const { param, body } = require('express-validator');
 const router = express.Router();
 
-// Import controllers
+// Import controller
 const notesController = require('../controllers/notesController');
 
 // Import middleware
