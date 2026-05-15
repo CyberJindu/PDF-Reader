@@ -93,4 +93,10 @@ router.get(
   notesController.searchNotes
 );
 
+// Track play
+router.post('/:id/play', protect, notesController.incrementPlay);
+
+// Track download  
+router.post('/:id/download', protect, notesController.incrementDownload);
+
 module.exports = router;
