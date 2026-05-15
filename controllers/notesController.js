@@ -68,8 +68,8 @@ exports.getNote = async (req, res, next) => {
     }
 
     // Increment play count (for analytics)
-    note.plays = (note.plays || 0) + 1;
-    await note.save();
+    //note.plays = (note.plays || 0) + 1;
+    //await note.save();
 
     // ✅ UPDATE USER STATS - Increment total streams
     await User.findByIdAndUpdate(userId, {
@@ -333,6 +333,40 @@ exports.incrementDownload = async (req, res, next) => {
     });
   } catch (error) {
     logger.error('Increment download error:', error);
+    next(error);
+  }
+};
+
+
+exports.incrementPlay = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const note = await Note.findOne({ _id: id, user: userId });
+
+    if (!note) {
+      return res.status(404).json({
+        success: false,
+        message: 'Note not found'
+      });
+    }
+
+    note.plays = (note.plays || 0) + 1;
+    await note.save();
+
+    await User.findByIdAndUpdate(userId, {
+      $inc: { 'stats.totalStreams': 1 },
+      $set: { 'stats.lastActive': new Date() }
+    });
+
+    res.json({
+      success: true,
+      message: 'Play count incremented',
+      plays: note.plays
+    });
+  } catch (error) {
+    logger.error('Increment play error:', error);
     next(error);
   }
 };
