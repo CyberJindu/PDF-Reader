@@ -1,5 +1,6 @@
 const Note = require('../models/Note');
 const User = require('../models/User');
+const Analytics = require('../models/Analytics');
 const logger = require('../utils/logger');
 
 /**
@@ -296,6 +297,8 @@ exports.getAllTags = async (req, res, next) => {
   }
 };
 
+
+
 /**
  * @desc    Increment download count for a note
  * @route   POST /api/notes/:id/download
@@ -315,16 +318,27 @@ exports.incrementDownload = async (req, res, next) => {
       });
     }
 
-    // Increment download count
+    // 1. Increment download count on Note
     note.downloads = (note.downloads || 0) + 1;
     await note.save();
 
-    // ✅ UPDATE USER STATS - Increment total downloads
+    // 2. Update User aggregate profile statistics
     await User.findByIdAndUpdate(userId, {
       $inc: { 'stats.totalDownloads': 1 },
       $set: { 'stats.lastActive': new Date() }
     });
-    logger.info(`Download recorded for user ${userId} - totalDownloads incremented`);
+
+    // 3. CREATE TRACKING ENTRY FOR CHARTS <-- FIXED
+    await Analytics.create({
+      userId,
+      action: 'audio_downloaded', // Matches the enum in Analytics.js and trends chart pipeline
+      metadata: {
+        noteId: id,
+        fileSize: note.fileSize || 0
+      }
+    });
+
+    logger.info(`Download recorded for user ${userId} - totalDownloads and Analytics incremented`);
 
     res.json({
       success: true,
@@ -337,7 +351,11 @@ exports.incrementDownload = async (req, res, next) => {
   }
 };
 
-
+/**
+ * @desc    Increment play count for an audio track
+ * @route   POST /api/notes/:id/play
+ * @access  Private
+ */
 exports.incrementPlay = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -352,13 +370,26 @@ exports.incrementPlay = async (req, res, next) => {
       });
     }
 
+    // 1. Increment play count on Note
     note.plays = (note.plays || 0) + 1;
     await note.save();
 
+    // 2. Update User profile aggregate statistics
     await User.findByIdAndUpdate(userId, {
       $inc: { 'stats.totalStreams': 1 },
       $set: { 'stats.lastActive': new Date() }
     });
+
+    // 3. CREATE TRACKING ENTRY FOR CHARTS <-- FIXED
+    await Analytics.create({
+      userId,
+      action: 'audio_played', // Matches the enum in Analytics.js and trends chart pipeline
+      metadata: {
+        noteId: id
+      }
+    });
+
+    logger.info(`Play recorded for user ${userId} - totalStreams and Analytics tracking created`);
 
     res.json({
       success: true,
