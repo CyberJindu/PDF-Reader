@@ -66,7 +66,8 @@ exports.getDashboardMetrics = async (req, res) => {
     
     // Use either total from Notes or time-filtered from Analytics
     // For dashboard, let's use total from Notes (all-time) and also show time-filtered
-    const totalAudioStreams = totalAudioStreamsFromNotes;  // All-time total
+    //const totalAudioStreams = totalAudioStreamsFromNotes;  // All-time total
+    const totalAudioStreams = timeFilteredTotal;
     
     // Get premium vs general users
     const premiumUsers = await User.countDocuments({ 
