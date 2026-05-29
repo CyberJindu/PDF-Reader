@@ -11,44 +11,37 @@ exports.getDashboardMetrics = async (req, res) => {
   try {
     const { timeRange = 'weekly' } = req.query;
     
-    // Calculate date range
+    // 1. Calculate date range
     const now = new Date();
     let startDate = new Date();
     
     switch (timeRange) {
-      case 'daily':
-        startDate.setDate(now.getDate() - 1);
-        break;
-      case 'weekly':
-        startDate.setDate(now.getDate() - 7);
-        break;
-      case 'monthly':
-        startDate.setMonth(now.getMonth() - 1);
-        break;
-      default:
-        startDate.setDate(now.getDate() - 7);
+      case 'daily': startDate.setDate(now.getDate() - 1); break;
+      case 'weekly': startDate.setDate(now.getDate() - 7); break;
+      case 'monthly': startDate.setMonth(now.getMonth() - 1); break;
+      default: startDate.setDate(now.getDate() - 7);
     }
     
-    // Get total users
+    console.log(`[Metrics] Fetching for range: ${timeRange} (Since: ${startDate.toISOString()})`);
+
+    // 2. Get total users
     const totalUsers = await User.countDocuments({ role: 'user' });
     
-    // Get total downloads and summaries from notes - FIXED AGGREGATION
+    // 3. Get total downloads/summaries from Notes
     const notesAgg = await Note.aggregate([
       {
         $group: {
           _id: null,
           totalDownloads: { $sum: '$downloads' },
-          totalSummaries: { $sum: 1 },  // FIXED: $sum: 1 instead of $count: {}
-          totalPlays: { $sum: '$plays' }  // ADDED: Get total audio streams from notes
+          totalSummaries: { $sum: 1 }
         }
       }
     ]);
     
     const totalDownloads = notesAgg[0]?.totalDownloads || 0;
     const totalSummaries = notesAgg[0]?.totalSummaries || 0;
-    const totalAudioStreamsFromNotes = notesAgg[0]?.totalPlays || 0;
     
-    // Get total audio streams for time range from Analytics collection (if you want time-filtered)
+    // 4. Get time-filtered audio streams from Analytics
     const audioStreamsData = await Analytics.aggregate([
       {
         $match: {
@@ -59,26 +52,23 @@ exports.getDashboardMetrics = async (req, res) => {
       {
         $group: {
           _id: null,
-          total: { $sum: 1 }
+          count: { $sum: 1 }
         }
       }
     ]);
     
-    // Use either total from Notes or time-filtered from Analytics
-    // For dashboard, let's use total from Notes (all-time) and also show time-filtered
-    //const totalAudioStreams = totalAudioStreamsFromNotes;  // All-time total
-    const timeFilteredTotal = audioStreamsData[0]?.total || 0;
-    const totalAudioStreams = timeFilteredTotal;
-    
-    // Get premium vs general users
+    // Safety check for variable definition
+    const timeFilteredTotal = audioStreamsData.length > 0 ? audioStreamsData[0].count : 0;
+    console.log(`[Metrics] Found ${timeFilteredTotal} audio_played events.`);
+
+    // 5. Get Premium status
     const premiumUsers = await User.countDocuments({ 
       'subscription.plan': 'premium',
       role: 'user'
     });
-    
     const generalUsers = totalUsers - premiumUsers;
     
-    // Get usage trends for chart - UPDATED to include audio_played
+    // 6. Usage Trends
     const usageTrends = await getUsageTrendsData(startDate, timeRange);
     
     res.status(200).json({
@@ -86,17 +76,15 @@ exports.getDashboardMetrics = async (req, res) => {
       totalUsers,
       totalDownloads,
       totalSummaries,
-      totalAudioStreams,
+      totalAudioStreams: timeFilteredTotal, // This is your dynamic count
       premiumUsers,
       generalUsers,
       usageTrends
     });
+    
   } catch (error) {
     console.error('Dashboard metrics error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error fetching dashboard metrics'
-    });
+    res.status(500).json({ success: false, message: 'Server error' });
   }
 };
 
