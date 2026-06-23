@@ -6,6 +6,8 @@ const xtts = require('../lib/xtts');
 const cloudinary = require('../lib/cloudinary');
 const logger = require('../utils/logger');
 const path = require('path');
+const fs = require('fs');
+const { extractTextFromPDF } = require('../lib/ocrProcessor'); 
 
 // Track upload progress (in production, use Redis)
 const uploadProgress = new Map();
@@ -221,73 +223,126 @@ exports.deleteUpload = async (req, res, next) => {
 
 // Helper function to process PDF
 async function processPDF(file, userId, uploadId) {
+  let extractedText = '';
+  let extractionMethod = 'text-based';
+  let totalPages = 1;
+
   try {
-    // Update progress: Extracting text
+    // STEP 1: Try to extract text from PDF
     uploadProgress.set(uploadId, {
       status: 'processing',
       progress: 20,
       message: 'Extracting text from PDF...'
     });
 
-    // Extract text from PDF - this returns an object with text property
-    const extractedData = await pdfProcessor.extractText(file.path);
-    
-    // Get the actual text string from the returned object
-    const extractedText = extractedData.text || '';
-    
-    // Check if we have enough text
-    if (!extractedText || extractedText.length < 50) {
-      throw new Error('Could not extract sufficient text from PDF');
+    // First attempt: Try regular text extraction
+    try {
+      const extractedData = await pdfProcessor.extractText(file.path);
+      extractedText = extractedData.text || '';
+      totalPages = extractedData.pages || 1;
+      
+      if (extractedText && extractedText.length >= 50) {
+        logger.info(`✅ Text-based extraction successful: ${extractedText.length} characters`);
+        extractionMethod = 'text-based';
+      } else {
+        throw new Error('Insufficient text extracted, attempting OCR');
+      }
+    } catch (textExtractionError) {
+      logger.warn('Text extraction failed or insufficient, switching to OCR:', textExtractionError.message);
+      
+      // STEP 2: Fallback to OCR for image-based PDFs
+      uploadProgress.set(uploadId, {
+        status: 'ocr-processing',
+        progress: 30,
+        message: '📷 Processing scanned PDF with OCR... (this may take a moment)'
+      });
+
+      try {
+        const ocrResult = await extractTextFromPDF(file.path, {
+          onProgress: (progress, message) => {
+            uploadProgress.set(uploadId, {
+              status: 'ocr-processing',
+              progress: 30 + (progress * 0.5), // Scale 30% to 80%
+              message: `📷 ${message}`
+            });
+          },
+          maxRetries: 3,
+          timeout: 60000,
+          parallelPages: 3,
+          language: 'eng'
+        });
+        extractedText = ocrResult.text || '';
+        totalPages = ocrResult.pages || 1;
+        
+        if (!extractedText || extractedText.length < 50) {
+          throw new Error('OCR extraction failed to produce sufficient text');
+        }
+        
+        extractionMethod = 'ocr-based';
+        logger.info(`✅ OCR extraction successful: ${extractedText.length} characters from ${totalPages} pages`);
+      } catch (ocrError) {
+        logger.error('OCR extraction failed:', ocrError);
+        throw new Error(`Could not extract text from PDF. ${ocrError.message}`);
+      }
     }
 
-    logger.info(`Extracted ${extractedText.length} characters from PDF`);
+    // Check if we have enough text after all extraction attempts
+    if (!extractedText || extractedText.length < 50) {
+      throw new Error('Could not extract sufficient text from PDF (minimum 50 characters required)');
+    }
 
-    // Update progress: Generating summary
+    // Update progress with extraction method info
     uploadProgress.set(uploadId, {
-      status: 'summarizing',
+      status: 'processing',
       progress: 40,
-      message: 'Generating AI summary (max 1400 words)...'
+      message: `✅ ${extractionMethod === 'ocr-based' ? 'OCR' : 'Text'} extraction complete, generating summary...`
     });
 
-    // Pass the actual text string to Gemini
+    logger.info(`Extracted ${extractedText.length} characters from PDF using ${extractionMethod}`);
+
+    // STEP 3: Generate AI summary
+    uploadProgress.set(uploadId, {
+      status: 'summarizing',
+      progress: 50,
+      message: '🤖 Generating AI summary (max 1400 words)...'
+    });
+
     const summary = await gemini.generateSummary(extractedText, 1400);
-    
     logger.info(`Generated summary of ${summary.length} characters`);
 
-    // Update progress: Generating audio
+    // STEP 4: Generate audio
     uploadProgress.set(uploadId, {
       status: 'generating-audio',
       progress: 70,
-      message: 'Creating audio summary...'
+      message: '🎵 Creating audio summary...'
     });
 
-    // Generate audio with TTS
     const audioBuffer = await xtts.generateAudio(summary);
 
-    // Update progress: Uploading to Cloudinary
+    // STEP 5: Upload to Cloudinary
     uploadProgress.set(uploadId, {
       status: 'uploading',
       progress: 85,
-      message: 'Saving your files...'
+      message: '☁️ Saving your files to cloud...'
     });
 
-    // Upload PDF to Cloudinary - using the service method
+    // Upload PDF to Cloudinary
     const pdfUpload = await cloudinary.uploadFile(file.path, {
       folder: `pdlist/users/${userId}/pdfs`,
       resource_type: 'raw',
       public_id: `${userId}_${Date.now()}_pdf`
     });
 
-    // Upload audio to Cloudinary - using the service method
+    // Upload audio to Cloudinary
     const audioUpload = await cloudinary.uploadAudio(
       audioBuffer, 
       userId, 
       `${userId}_${Date.now()}_audio`
     );
 
-    // Calculate audio duration (approx based on word count)
+    // Calculate audio duration
     const wordCount = summary.split(/\s+/).length;
-    const audioDurationSeconds = Math.ceil(wordCount / 150); // 150 words per minute average
+    const audioDurationSeconds = Math.ceil(wordCount / 150);
     const minutes = Math.floor(audioDurationSeconds / 60);
     const seconds = audioDurationSeconds % 60;
 
@@ -296,17 +351,16 @@ async function processPDF(file, userId, uploadId) {
     console.log('User ID:', userId);
     console.log('Upload ID:', uploadId);
     console.log('Title:', file.originalname.replace('.pdf', ''));
+    console.log('Extraction Method:', extractionMethod);
+    console.log('Pages:', totalPages);
     console.log('Summary length:', summary.length);
-    console.log('Pages:', extractedData.pages || 1);
     console.log('PDF URL:', pdfUpload.secure_url || pdfUpload.url);
     console.log('Audio URL:', audioUpload.secure_url || audioUpload.url);
     console.log('Audio Duration:', `${minutes}:${seconds.toString().padStart(2, '0')}`);
     console.log('Word Count:', wordCount);
     console.log('===========================');
 
-    const fullSummary = summary; // Use the full summary
-
-    //  Make sure we have the correct URL properties
+    // Get URLs
     const pdfUrl = pdfUpload.secure_url || pdfUpload.url;
     const audioUrl = audioUpload.secure_url || audioUpload.url;
 
@@ -317,19 +371,19 @@ async function processPDF(file, userId, uploadId) {
       throw new Error('Audio URL is missing from Cloudinary response');
     }
 
-    // Get public IDs for deletion later
+    // Get public IDs
     const pdfPublicId = pdfUpload.public_id || 
       (pdfUrl.split('/').pop().split('.')[0]);
     const audioPublicId = audioUpload.public_id || 
       (audioUrl.split('/').pop().split('.')[0]);
 
-    // Save to database with ALL required fields
+    // STEP 6: Save to database
     const note = await Note.create({
       user: userId,
       uploadId,
       title: file.originalname.replace('.pdf', ''),
-      summary: fullSummary,
-      pages: extractedData.pages || 1,
+      summary: summary,
+      pages: totalPages,
       tags: [],
       category: 'uncategorized',
       isFavorite: false,
@@ -346,18 +400,20 @@ async function processPDF(file, userId, uploadId) {
       metadata: {
         originalName: file.originalname,
         fileSize: file.size,
-        wordCount: extractedData.wordCount || wordCount,
+        wordCount: wordCount,
         characterCount: summary.length,
         processingTime: Date.now(),
         modelUsed: 'gemini-2.5-flash',
-        language: 'en'
+        language: 'en',
+        extractionMethod: extractionMethod, // Added to track how text was extracted
+        totalPages: totalPages
       },
       source: 'upload'
     });
 
     console.log('✅ Note created successfully with ID:', note._id);
 
-    // ✅ UPDATE USER STATS - Increment totals
+    // STEP 7: Update user stats
     await User.findByIdAndUpdate(userId, {
       $inc: {
         'stats.totalUploads': 1,
@@ -369,17 +425,16 @@ async function processPDF(file, userId, uploadId) {
     });
     console.log('✅ User stats updated - totalSummaries incremented');
 
-    // Clean up temp file
-    const fs = require('fs');
+    // STEP 8: Clean up temp file
     fs.unlink(file.path, (err) => {
       if (err) logger.error('Error deleting temp file:', err);
     });
 
-    // Update progress as completed
+    // STEP 9: Mark as completed
     uploadProgress.set(uploadId, {
       status: 'completed',
       progress: 100,
-      message: 'Processing complete!',
+      message: `✅ Processing complete! (${extractionMethod === 'ocr-based' ? 'OCR' : 'Text'} extraction)`,
       noteId: note._id
     });
 
@@ -388,15 +443,29 @@ async function processPDF(file, userId, uploadId) {
       uploadProgress.delete(uploadId);
     }, 300000);
 
-    logger.info(`PDF processed successfully for user ${userId}`);
+    logger.info(`PDF processed successfully for user ${userId} using ${extractionMethod}`);
+    
   } catch (error) {
     logger.error('PDF processing error:', error);
+    
+    // Clean up temp file if it exists
+    try {
+      if (file && file.path && fs.existsSync(file.path)) {
+        fs.unlink(file.path, (err) => {
+          if (err) logger.error('Error deleting temp file:', err);
+        });
+      }
+    } catch (cleanupError) {
+      logger.error('Error during cleanup:', cleanupError);
+    }
+    
     // Update progress with error
     uploadProgress.set(uploadId, {
       status: 'error',
       progress: 0,
       message: error.message || 'Processing failed'
     });
+    
     throw error;
   }
 }
