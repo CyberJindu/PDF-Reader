@@ -7,7 +7,7 @@ const cloudinary = require('../lib/cloudinary');
 const logger = require('../utils/logger');
 const path = require('path');
 const fs = require('fs');
-const { extractTextFromPDF } = require('../lib/ocrProcessor'); 
+// const { extractTextFromPDF } = require('../lib/ocrProcessor'); // ❌ REMOVED FOR TESTING
 
 // Track upload progress (in production, use Redis)
 const uploadProgress = new Map();
@@ -291,54 +291,16 @@ async function processPDF(file, userId, uploadId) {
         logger.info(`✅ Text-based extraction successful: ${extractedText.length} characters`);
         extractionMethod = 'text-based';
       } else {
-        console.log(`⚠️ [processPDF] Insufficient text (${extractedText.length} chars), switching to OCR`);
-        throw new Error('Insufficient text extracted, attempting OCR');
+        console.log(`⚠️ [processPDF] Insufficient text (${extractedText.length} chars), skipping OCR (TEST MODE)`);
+        throw new Error('Insufficient text extracted (OCR disabled for testing)');
       }
     } catch (textExtractionError) {
       console.log(`⚠️ [processPDF] Text extraction failed:`, textExtractionError.message);
-      logger.warn('Text extraction failed or insufficient, switching to OCR:', textExtractionError.message);
+      logger.warn('Text extraction failed or insufficient:', textExtractionError.message);
       
-      // STEP 2: Fallback to OCR for image-based PDFs
-      console.log(`📷 [processPDF] Step 2: Switching to OCR`);
-      uploadProgress.set(uploadId, {
-        status: 'ocr-processing',
-        progress: 30,
-        message: '📷 Processing scanned PDF with OCR... (this may take a moment)'
-      });
-
-      try {
-        console.log(`🔍 [processPDF] Starting OCR extraction`);
-        const ocrResult = await extractTextFromPDF(file.path, {
-          onProgress: (progress, message) => {
-            console.log(`📊 [processPDF] OCR Progress: ${progress}% - ${message}`);
-            uploadProgress.set(uploadId, {
-              status: 'ocr-processing',
-              progress: 30 + (progress * 0.5), // Scale 30% to 80%
-              message: `📷 ${message}`
-            });
-          },
-          maxRetries: 3,
-          timeout: 60000,
-          parallelPages: 3,
-          language: 'eng'
-        });
-        extractedText = ocrResult.text || '';
-        totalPages = ocrResult.pages || 1;
-        console.log(`📊 [processPDF] OCR result: ${extractedText.length} chars, ${totalPages} pages`);
-        
-        if (!extractedText || extractedText.length < 50) {
-          console.log(`❌ [processPDF] OCR produced insufficient text: ${extractedText.length} chars`);
-          throw new Error('OCR extraction failed to produce sufficient text');
-        }
-        
-        extractionMethod = 'ocr-based';
-        console.log(`✅ [processPDF] OCR extraction successful`);
-        logger.info(`✅ OCR extraction successful: ${extractedText.length} characters from ${totalPages} pages`);
-      } catch (ocrError) {
-        console.log(`❌ [processPDF] OCR failed:`, ocrError.message);
-        logger.error('OCR extraction failed:', ocrError);
-        throw new Error(`Could not extract text from PDF. ${ocrError.message}`);
-      }
+      // STEP 2: Skip OCR - TEST MODE
+      console.log(`🚫 [processPDF] OCR is DISABLED for testing - throwing error to check if controller works`);
+      throw new Error(`Text extraction failed: ${textExtractionError.message} (OCR temporarily disabled)`);
     }
 
     // Check if we have enough text after all extraction attempts
