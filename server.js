@@ -32,9 +32,37 @@ app.use(helmet());
 
 app.set('trust proxy', 1);
 
-// CORS configuration - Allow all origins temporarily for testing
+// CORS configuration - FIXED FOR WEBCONTAINER
+const allowedOrigins = [
+  'https://vitejsviteugtwzjqg-k2do--3000--61636aac.local-credentialless.webcontainer.io',
+  process.env.FRONTEND_URL,
+  /\.webcontainer\.io$/,
+  'https://stackblitzstarterslhhckzjs-o2if--3000--4c73681d.local-credentialless.webcontainer.io',
+  'https://stackblitzstartersgbszhjad-gbh5--3000--4c73681d.local-credentialless.webcontainer.io'
+].filter(Boolean);
+
 app.use(cors({
-  origin: '*', // Allow all origins
+  origin: function(origin, callback) {
+    // Allow requests with no origin (like mobile apps, curl, Postman, etc)
+    if (!origin) {
+      return callback(null, true);
+    }
+    
+    // Check if origin is allowed
+    const isAllowed = allowedOrigins.some(allowedOrigin => {
+      if (allowedOrigin instanceof RegExp) {
+        return allowedOrigin.test(origin);
+      }
+      return allowedOrigin === origin;
+    });
+    
+    if (isAllowed) {
+      callback(null, true);
+    } else {
+      logger.warn(`CORS blocked origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   optionsSuccessStatus: 200,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
