@@ -89,7 +89,7 @@ exports.getUserDetails = async (req, res) => {
 };
 
 /**
- * @desc    Update user privileges (toggle ON/OFF all features)
+ * @desc    Update user privileges (toggle ON/OFF premium access)
  * @route   PUT /api/admin/users/:userId/privileges
  * @access  Private (Admin only)
  */
@@ -107,21 +107,18 @@ exports.updateUserPrivileges = async (req, res) => {
       });
     }
     
-    // Update admin overrides
-    user.adminOverrides = {
-      ...user.adminOverrides,
-      featuresUnlocked: featuresUnlocked === true || featuresUnlocked === 'true'
-    };
+    // Update admin override
+    user.adminOverrides.featuresUnlocked = featuresUnlocked === true || featuresUnlocked === 'true';
     
     await user.save();
     
     res.status(200).json({
       success: true,
-      message: featuresUnlocked ? 'User features unlocked' : 'User features locked',
+      message: featuresUnlocked ? 'Premium access granted' : 'Premium access revoked',
       user: {
         id: user._id,
         email: user.email,
-        adminOverrides: user.adminOverrides
+        isPremium: user.adminOverrides.featuresUnlocked
       }
     });
   } catch (error) {
@@ -160,10 +157,8 @@ exports.getUserStats = async (req, res) => {
       totalUploads: user.stats?.totalUploads || 0,
       totalAudioMinutes: user.stats?.totalAudioMinutes || 0,
       lastActive: user.stats?.lastActive || user.lastLogin,
-      plan: user.subscription?.plan || 'free',
-      isPremiumUnlocked: user.adminOverrides?.featuresUnlocked || false,
-      dailyAudioPlays: user.dailyLimits?.audioPlaysToday || 0,
-      dailyPreviews: user.dailyLimits?.summaryPreviewsToday || 0
+      isPremium: user.adminOverrides?.featuresUnlocked || false,
+      audioPlayedOnce: user.previewAccess?.audioPlayedOnce || false
     };
     
     res.status(200).json({
@@ -175,60 +170,6 @@ exports.getUserStats = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error fetching user stats'
-    });
-  }
-};
-
-/**
- * @desc    Toggle specific feature for user
- * @route   PATCH /api/admin/users/:userId/features
- * @access  Private (Admin only)
- */
-exports.toggleUserFeature = async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { feature, enabled } = req.body;
-    
-    const user = await User.findById(userId);
-    
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
-    }
-    
-    // Handle different features
-    switch (feature) {
-      case 'featuresUnlocked':
-        user.adminOverrides.featuresUnlocked = enabled;
-        break;
-      case 'forcePremium':
-        user.adminOverrides.forcePremium = enabled;
-        break;
-      default:
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid feature specified'
-        });
-    }
-    
-    await user.save();
-    
-    res.status(200).json({
-      success: true,
-      message: `Feature ${feature} ${enabled ? 'enabled' : 'disabled'}`,
-      user: {
-        id: user._id,
-        email: user.email,
-        adminOverrides: user.adminOverrides
-      }
-    });
-  } catch (error) {
-    console.error('Toggle user feature error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error toggling feature'
     });
   }
 };
