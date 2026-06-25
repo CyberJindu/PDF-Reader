@@ -134,97 +134,75 @@ exports.optionalAuth = async (req, res, next) => {
 };
 
 /**
- * Check subscription
+ * Check premium access (admin toggle only)
  */
-exports.checkSubscription = (requiredPlan = 'free') => {
-  return async (req, res, next) => {
-    try {
-      const user = req.user;
+exports.requirePremium = async (req, res, next) => {
+  try {
+    const user = req.user;
 
-      // Admin bypass
-      if (user.role === 'admin') {
-        return next();
-      }
-
-      const planPriority = {
-        'free': 1,
-        'basic': 2,
-        'premium': 3
-      };
-
-      const userPlan = user.subscription.plan;
-      const requiredPriority = planPriority[requiredPlan] || 1;
-      const userPriority = planPriority[userPlan] || 1;
-
-      if (userPriority < requiredPriority) {
-        return res.status(403).json({
-          success: false,
-          message: `This feature requires ${requiredPlan} subscription or higher`
-        });
-      }
-
-      // Check if subscription is valid
-      if (user.subscription.validUntil && user.subscription.validUntil < Date.now()) {
-        return res.status(403).json({
-          success: false,
-          message: 'Subscription has expired'
-        });
-      }
-
-      next();
-    } catch (error) {
-      logger.error('Subscription check error:', error);
-      next(error);
-    }
-  };
-};
-
-/**
- * Rate limit based on user role/subscription
- */
-exports.userRateLimit = (options = {}) => {
-  const { windowMs = 15 * 60 * 1000, maxRequests = 100 } = options;
-
-  // Store request counts (in production, use Redis)
-  const requestCounts = new Map();
-
-  return (req, res, next) => {
-    const userId = req.user ? req.user.id : req.ip;
-    const now = Date.now();
-
-    // Clean up old entries
-    if (requestCounts.size > 10000) {
-      for (const [key, data] of requestCounts.entries()) {
-        if (now - data.windowStart > windowMs) {
-          requestCounts.delete(key);
-        }
-      }
-    }
-
-    // Get or create request data
-    let requestData = requestCounts.get(userId);
-    
-    if (!requestData || now - requestData.windowStart > windowMs) {
-      requestData = {
-        windowStart: now,
-        count: 1
-      };
-    } else {
-      requestData.count += 1;
-    }
-
-    requestCounts.set(userId, requestData);
-
-    // Check if over limit
-    if (requestData.count > maxRequests) {
-      const resetTime = new Date(requestData.windowStart + windowMs);
-      return res.status(429).json({
+    if (!user) {
+      return res.status(401).json({
         success: false,
-        message: 'Too many requests',
-        resetAt: resetTime
+        message: 'Not authorized'
+      });
+    }
+
+    // Admin bypass
+    if (user.role === 'admin') {
+      return next();
+    }
+
+    // Check admin toggle
+    if (!user.hasPremiumAccess()) {
+      return res.status(403).json({
+        success: false,
+        message: 'This feature requires a premium subscription',
+        code: 'PREMIUM_REQUIRED'
       });
     }
 
     next();
-  };
+  } catch (error) {
+    logger.error('Premium check error:', error);
+    next(error);
+  }
+};
+
+/**
+ * Check if free user has already played audio once
+ */
+exports.checkAudioPlayLimit = async (req, res, next) => {
+  try {
+    const user = req.user;
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Not authorized'
+      });
+    }
+
+    // Admins and premium users bypass
+    if (user.role === 'admin' || user.hasPremiumAccess()) {
+      return next();
+    }
+
+    // Free user — check if they already played audio
+    if (user.previewAccess.audioPlayedOnce) {
+      return res.status(403).json({
+        success: false,
+        message: 'You have used your free audio play. Please subscribe to listen again.',
+        code: 'PREMIUM_REQUIRED'
+      });
+    }
+
+    // First play — allow and mark
+    user.previewAccess.audioPlayedOnce = true;
+    await user.save();
+
+    next();
+  } catch (error) {
+    logger.error('Audio play limit check error:', error);
+    next(error);
+  }
 };
