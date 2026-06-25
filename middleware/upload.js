@@ -153,47 +153,10 @@ const trackUploadProgress = (req, res, next) => {
   next();
 };
 
-/**
- * Check user upload limits
- */
-const checkUploadLimits = async (req, res, next) => {
-  try {
-    if (!req.user) {
-      return next();
-    }
-
-    const user = req.user;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    // Get today's upload count from Note model
-    const Note = require('../models/Note');
-    const todayUploads = await Note.countDocuments({
-      user: user._id,
-      createdAt: { $gte: today }
-    });
-
-    const maxUploads = user.subscription.features.maxUploadsPerDay || 5;
-
-    if (todayUploads >= maxUploads) {
-      return res.status(429).json({
-        success: false,
-        message: `Daily upload limit reached (${maxUploads} per day)`
-      });
-    }
-
-    next();
-  } catch (error) {
-    logger.error('Upload limit check error:', error);
-    next(error);
-  }
-};
-
 module.exports = {
   upload,
   handleMulterError,
   validateFile,
   cleanupFailedUpload,
-  trackUploadProgress,
-  checkUploadLimits
+  trackUploadProgress
 };
