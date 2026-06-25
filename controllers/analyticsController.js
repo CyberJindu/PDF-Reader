@@ -57,13 +57,12 @@ exports.getDashboardMetrics = async (req, res) => {
       }
     ]);
     
-    // Safety check for variable definition
     const timeFilteredTotal = audioStreamsData.length > 0 ? audioStreamsData[0].count : 0;
     console.log(`[Metrics] Found ${timeFilteredTotal} audio_played events.`);
 
-    // 5. Get Premium status
+    // 5. Get Premium status (admin toggle)
     const premiumUsers = await User.countDocuments({ 
-      'subscription.plan': 'premium',
+      'adminOverrides.featuresUnlocked': true,
       role: 'user'
     });
     const generalUsers = totalUsers - premiumUsers;
@@ -76,7 +75,7 @@ exports.getDashboardMetrics = async (req, res) => {
       totalUsers,
       totalDownloads,
       totalSummaries,
-      totalAudioStreams: timeFilteredTotal, // This is your dynamic count
+      totalAudioStreams: timeFilteredTotal,
       premiumUsers,
       generalUsers,
       usageTrends
@@ -166,7 +165,6 @@ exports.getUsageTrends = async (req, res) => {
       { $sort: { _id: 1 } }
     ]);
     
-    // Format data for chart
     const formattedData = trends.map(item => ({
       name: item._id,
       uploads: item.uploads || 0,
@@ -213,7 +211,6 @@ exports.getAudioStreams = async (req, res) => {
         startDate.setDate(now.getDate() - 7);
     }
     
-    // Get total plays from Note model (all-time)
     const totalPlaysAgg = await Note.aggregate([
       {
         $group: {
@@ -225,7 +222,6 @@ exports.getAudioStreams = async (req, res) => {
     
     const allTimeTotal = totalPlaysAgg[0]?.total || 0;
     
-    // Get time-filtered plays if Analytics collection has data
     const timeFilteredResult = await Analytics.aggregate([
       {
         $match: {
@@ -245,8 +241,8 @@ exports.getAudioStreams = async (req, res) => {
     
     res.status(200).json({
       success: true,
-      total: allTimeTotal,  // Send all-time total
-      timeFilteredTotal,    // Optional: send filtered total
+      total: allTimeTotal,
+      timeFilteredTotal,
       timeRange
     });
   } catch (error) {
@@ -267,7 +263,7 @@ exports.getConversionRate = async (req, res) => {
   try {
     const totalUsers = await User.countDocuments({ role: 'user' });
     const premiumUsers = await User.countDocuments({ 
-      'subscription.plan': 'premium',
+      'adminOverrides.featuresUnlocked': true,
       role: 'user'
     });
     const generalUsers = totalUsers - premiumUsers;
