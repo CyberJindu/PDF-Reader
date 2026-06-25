@@ -6,6 +6,7 @@ const xtts = require('../lib/xtts');
 const cloudinary = require('../lib/cloudinary');
 const logger = require('../utils/logger');
 const path = require('path');
+const fs = require('fs');
 
 // Track upload progress (in production, use Redis)
 const uploadProgress = new Map();
@@ -67,7 +68,6 @@ exports.getUploadStatus = async (req, res) => {
   const status = uploadProgress.get(id);
 
   if (!status) {
-    // Check if it's a completed upload (in database)
     const note = await Note.findOne({ uploadId: id });
     if (note) {
       return res.json({
@@ -173,33 +173,26 @@ exports.deleteUpload = async (req, res, next) => {
       });
     }
 
-    // Delete files from Cloudinary using the service methods
     if (note.pdfUrl && note.pdfPublicId) {
       try {
-        // Use the service's deleteFile method for PDF (raw resource type)
         await cloudinary.deleteFile(note.pdfPublicId, 'raw');
         logger.info(`PDF deleted: ${note.pdfPublicId}`);
       } catch (pdfError) {
         logger.error('Error deleting PDF from Cloudinary:', pdfError);
-        // Continue with deletion even if Cloudinary delete fails
       }
     }
 
     if (note.audioUrl && note.audioPublicId) {
       try {
-        // Use the service's deleteFile method for audio (video resource type)
         await cloudinary.deleteFile(note.audioPublicId, 'video');
         logger.info(`Audio deleted: ${note.audioPublicId}`);
       } catch (audioError) {
         logger.error('Error deleting audio from Cloudinary:', audioError);
-        // Continue with deletion even if Cloudinary delete fails
       }
     }
 
-    // Delete from database
     await note.deleteOne();
 
-    // Update user stats - decrement totalSummaries
     await User.findByIdAndUpdate(userId, {
       $inc: {
         'stats.totalSummaries': -1
@@ -222,37 +215,63 @@ exports.deleteUpload = async (req, res, next) => {
 // Helper function to process PDF
 async function processPDF(file, userId, uploadId) {
   try {
-    // Update progress: Extracting text
+    // Step 1: Check if PDF is readable (text-based or image-based)
     uploadProgress.set(uploadId, {
       status: 'processing',
-      progress: 20,
-      message: 'Extracting text from PDF...'
+      progress: 15,
+      message: 'Analyzing PDF type...'
     });
 
-    // Extract text from PDF - this returns an object with text property
-    const extractedData = await pdfProcessor.extractText(file.path);
-    
-    // Get the actual text string from the returned object
-    const extractedText = extractedData.text || '';
-    
-    // Check if we have enough text
-    if (!extractedText || extractedText.length < 50) {
-      throw new Error('Could not extract sufficient text from PDF');
+    const isReadable = await pdfProcessor.isReadable(file.path);
+    let summary;
+    let pages;
+    let wordCount;
+    let processingMethod;
+
+    if (isReadable) {
+      // TEXT-BASED PATH
+      uploadProgress.set(uploadId, {
+        status: 'processing',
+        progress: 20,
+        message: 'Extracting text from PDF...'
+      });
+
+      const extractedData = await pdfProcessor.extractText(file.path);
+      const extractedText = extractedData.text || '';
+      pages = extractedData.pages || 1;
+
+      if (!extractedText || extractedText.length < 50) {
+        throw new Error('Could not extract sufficient text from PDF');
+      }
+
+      logger.info(`Extracted ${extractedText.length} characters from text-based PDF`);
+
+      uploadProgress.set(uploadId, {
+        status: 'summarizing',
+        progress: 40,
+        message: 'Generating AI summary (max 1400 words)...'
+      });
+
+      summary = await gemini.generateSummary(extractedText, 1400);
+      processingMethod = 'text';
+    } else {
+      // IMAGE-BASED PATH
+      logger.info('PDF detected as image-based, using Gemini Vision...');
+
+      uploadProgress.set(uploadId, {
+        status: 'processing',
+        progress: 20,
+        message: 'Reading image-based PDF with AI...'
+      });
+
+      summary = await gemini.generateSummaryFromPDF(file.path, 1400);
+      pages = 1; // Unknown pages for image-based
+      processingMethod = 'vision';
+
+      logger.info(`Summary generated from image-based PDF: ${summary.length} characters`);
     }
 
-    logger.info(`Extracted ${extractedText.length} characters from PDF`);
-
-    // Update progress: Generating summary
-    uploadProgress.set(uploadId, {
-      status: 'summarizing',
-      progress: 40,
-      message: 'Generating AI summary (max 1400 words)...'
-    });
-
-    // Pass the actual text string to Gemini
-    const summary = await gemini.generateSummary(extractedText, 1400);
-    
-    logger.info(`Generated summary of ${summary.length} characters`);
+    wordCount = summary.split(/\s+/).length;
 
     // Update progress: Generating audio
     uploadProgress.set(uploadId, {
@@ -271,14 +290,14 @@ async function processPDF(file, userId, uploadId) {
       message: 'Saving your files...'
     });
 
-    // Upload PDF to Cloudinary - using the service method
+    // Upload PDF to Cloudinary
     const pdfUpload = await cloudinary.uploadFile(file.path, {
       folder: `pdlist/users/${userId}/pdfs`,
       resource_type: 'raw',
       public_id: `${userId}_${Date.now()}_pdf`
     });
 
-    // Upload audio to Cloudinary - using the service method
+    // Upload audio to Cloudinary
     const audioUpload = await cloudinary.uploadAudio(
       audioBuffer, 
       userId, 
@@ -286,27 +305,24 @@ async function processPDF(file, userId, uploadId) {
     );
 
     // Calculate audio duration (approx based on word count)
-    const wordCount = summary.split(/\s+/).length;
-    const audioDurationSeconds = Math.ceil(wordCount / 150); // 150 words per minute average
+    const audioDurationSeconds = Math.ceil(wordCount / 150);
     const minutes = Math.floor(audioDurationSeconds / 60);
     const seconds = audioDurationSeconds % 60;
 
-    // DEBUG: Log all values before creating note
+    // DEBUG
     console.log('=== NOTE CREATION DEBUG ===');
     console.log('User ID:', userId);
     console.log('Upload ID:', uploadId);
     console.log('Title:', file.originalname.replace('.pdf', ''));
     console.log('Summary length:', summary.length);
-    console.log('Pages:', extractedData.pages || 1);
+    console.log('Pages:', pages);
+    console.log('Processing Method:', processingMethod);
     console.log('PDF URL:', pdfUpload.secure_url || pdfUpload.url);
     console.log('Audio URL:', audioUpload.secure_url || audioUpload.url);
     console.log('Audio Duration:', `${minutes}:${seconds.toString().padStart(2, '0')}`);
     console.log('Word Count:', wordCount);
     console.log('===========================');
 
-    const fullSummary = summary; // Use the full summary
-
-    //  Make sure we have the correct URL properties
     const pdfUrl = pdfUpload.secure_url || pdfUpload.url;
     const audioUrl = audioUpload.secure_url || audioUpload.url;
 
@@ -317,19 +333,18 @@ async function processPDF(file, userId, uploadId) {
       throw new Error('Audio URL is missing from Cloudinary response');
     }
 
-    // Get public IDs for deletion later
     const pdfPublicId = pdfUpload.public_id || 
       (pdfUrl.split('/').pop().split('.')[0]);
     const audioPublicId = audioUpload.public_id || 
       (audioUrl.split('/').pop().split('.')[0]);
 
-    // Save to database with ALL required fields
+    // Save to database
     const note = await Note.create({
       user: userId,
       uploadId,
       title: file.originalname.replace('.pdf', ''),
-      summary: fullSummary,
-      pages: extractedData.pages || 1,
+      summary: summary,
+      pages: pages,
       tags: [],
       category: 'uncategorized',
       isFavorite: false,
@@ -346,10 +361,11 @@ async function processPDF(file, userId, uploadId) {
       metadata: {
         originalName: file.originalname,
         fileSize: file.size,
-        wordCount: extractedData.wordCount || wordCount,
+        wordCount: wordCount,
         characterCount: summary.length,
         processingTime: Date.now(),
         modelUsed: 'gemini-2.5-flash',
+        processingMethod: processingMethod,
         language: 'en'
       },
       source: 'upload'
@@ -357,7 +373,6 @@ async function processPDF(file, userId, uploadId) {
 
     console.log('✅ Note created successfully with ID:', note._id);
 
-    // ✅ UPDATE USER STATS - Increment totals
     await User.findByIdAndUpdate(userId, {
       $inc: {
         'stats.totalUploads': 1,
@@ -370,7 +385,6 @@ async function processPDF(file, userId, uploadId) {
     console.log('✅ User stats updated - totalSummaries incremented');
 
     // Clean up temp file
-    const fs = require('fs');
     fs.unlink(file.path, (err) => {
       if (err) logger.error('Error deleting temp file:', err);
     });
@@ -388,10 +402,9 @@ async function processPDF(file, userId, uploadId) {
       uploadProgress.delete(uploadId);
     }, 300000);
 
-    logger.info(`PDF processed successfully for user ${userId}`);
+    logger.info(`PDF processed successfully for user ${userId} (${processingMethod})`);
   } catch (error) {
     logger.error('PDF processing error:', error);
-    // Update progress with error
     uploadProgress.set(uploadId, {
       status: 'error',
       progress: 0,
