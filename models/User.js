@@ -62,40 +62,18 @@ const UserSchema = new mongoose.Schema({
     totalUploads: { type: Number, default: 0 },
     totalSummaries: { type: Number, default: 0 },
     totalAudioMinutes: { type: Number, default: 0 },
-    totalDownloads: { type: Number, default: 0 },      // NEW - Track total downloads
-    totalStreams: { type: Number, default: 0 },        // NEW - Track total audio streams
+    totalDownloads: { type: Number, default: 0 },
+    totalStreams: { type: Number, default: 0 },
     lastActive: { type: Date, default: Date.now }
   },
-  subscription: {
-    plan: {
-      type: String,
-      enum: ['free', 'basic', 'premium'],
-      default: 'free'
-    },
-    validUntil: Date,
-    features: {
-      maxUploadsPerDay: { type: Number, default: 5 },
-      maxFileSize: { type: Number, default: 50 * 1024 * 1024 }, // 50MB
-      allowCustomVoices: { type: Boolean, default: false },
-      allowBatchProcessing: { type: Boolean, default: false }
-    }
-  },
-  // NEW - Admin overrides for feature locking/unlocking
+  // Admin toggle for premium access
   adminOverrides: {
-    featuresUnlocked: { type: Boolean, default: false },  // Admin toggle ON/OFF
-    forcePremium: { type: Boolean, default: false },       // Override subscription
-    notes: { type: String, default: '' }                   // Admin notes about user
+    featuresUnlocked: { type: Boolean, default: false },
+    notes: { type: String, default: '' }
   },
-  // NEW - Daily limits for free tier (20% preview, single audio play)
-  dailyLimits: {
-    audioPlaysToday: { type: Number, default: 0 },
-    summaryPreviewsToday: { type: Number, default: 0 },
-    lastResetDate: { type: Date, default: Date.now }
-  },
-  // NEW - Preview access tracking for monetization
+  // Tracks free user consumption limits
   previewAccess: {
-    hasSeenFullSummary: { type: Boolean, default: false },  // For 20% rule
-    audioPlayedOnce: { type: Boolean, default: false }      // For single play limit
+    audioPlayedOnce: { type: Boolean, default: false }
   },
   resetPasswordToken: String,
   resetPasswordExpire: Date,
@@ -150,7 +128,6 @@ UserSchema.methods.isLocked = function() {
 
 // Increment login attempts
 UserSchema.methods.incrementLoginAttempts = function() {
-  // If lock has expired, reset attempts
   if (this.lockUntil && this.lockUntil < Date.now()) {
     return this.updateOne({
       $set: { loginAttempts: 1 },
@@ -160,9 +137,8 @@ UserSchema.methods.incrementLoginAttempts = function() {
   
   const updates = { $inc: { loginAttempts: 1 } };
   
-  // Lock account if too many attempts
   if (this.loginAttempts + 1 >= 5 && !this.isLocked()) {
-    updates.$set = { lockUntil: Date.now() + 60 * 60 * 1000 }; // Lock for 1 hour
+    updates.$set = { lockUntil: Date.now() + 60 * 60 * 1000 };
   }
   
   return this.updateOne(updates);
@@ -178,34 +154,18 @@ UserSchema.virtual('initials').get(function() {
     .slice(0, 2);
 });
 
-// NEW - Method to check if user has premium access (admin override or subscription)
+// Check if user has premium access
 UserSchema.methods.hasPremiumAccess = function() {
-  // Check if admin has manually unlocked features
   if (this.adminOverrides && this.adminOverrides.featuresUnlocked) {
     return true;
   }
-  // Check if user has active premium subscription
-  if (this.subscription && this.subscription.plan === 'premium') {
-    if (!this.subscription.validUntil || this.subscription.validUntil > Date.now()) {
-      return true;
-    }
-  }
   return false;
-};
-
-// NEW - Method to reset daily limits
-UserSchema.methods.resetDailyLimits = function() {
-  this.dailyLimits.audioPlaysToday = 0;
-  this.dailyLimits.summaryPreviewsToday = 0;
-  this.dailyLimits.lastResetDate = new Date();
-  return this.save();
 };
 
 // Indexes
 UserSchema.index({ email: 1 });
 UserSchema.index({ role: 1 });
-UserSchema.index({ 'subscription.plan': 1 });
 UserSchema.index({ createdAt: -1 });
-UserSchema.index({ 'adminOverrides.featuresUnlocked': 1 }); // NEW - For admin queries
+UserSchema.index({ 'adminOverrides.featuresUnlocked': 1 });
 
 module.exports = mongoose.model('User', UserSchema);
