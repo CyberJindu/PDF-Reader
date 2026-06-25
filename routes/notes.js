@@ -6,7 +6,7 @@ const router = express.Router();
 const notesController = require('../controllers/notesController');
 
 // Import middleware
-const { protect } = require('../middleware/auth');
+const { protect, requirePremium, checkAudioPlayLimit } = require('../middleware/auth');
 const { validate } = require('../middleware/validator');
 
 /**
@@ -17,13 +17,43 @@ const { validate } = require('../middleware/validator');
 router.get('/', protect, notesController.getAllNotes);
 
 /**
+ * @route   GET /api/notes/tags/all
+ * @desc    Get all unique tags for user
+ * @access  Private
+ */
+router.get('/tags/all', protect, notesController.getAllTags);
+
+/**
+ * @route   GET /api/notes/search/:query
+ * @desc    Search notes
+ * @access  Private
+ */
+router.get(
+  '/search/:query',
+  protect,
+  [
+    param('query').notEmpty().withMessage('Search query is required')
+  ],
+  validate,
+  notesController.searchNotes
+);
+
+/**
+ * @route   GET /api/notes/tag/:tag
+ * @desc    Get notes by tag
+ * @access  Private
+ */
+router.get('/tag/:tag', protect, notesController.getNotesByTag);
+
+/**
  * @route   GET /api/notes/:id
- * @desc    Get single note by ID
+ * @desc    Get single note by ID (full summary — premium only)
  * @access  Private
  */
 router.get(
   '/:id',
   protect,
+  requirePremium,
   [
     param('id').isMongoId().withMessage('Invalid note ID')
   ],
@@ -79,24 +109,17 @@ router.post(
 );
 
 /**
- * @route   GET /api/notes/search/:query
- * @desc    Search notes
+ * @route   POST /api/notes/:id/play
+ * @desc    Track audio play (free: once, premium: unlimited)
  * @access  Private
  */
-router.get(
-  '/search/:query',
-  protect,
-  [
-    param('query').notEmpty().withMessage('Search query is required')
-  ],
-  validate,
-  notesController.searchNotes
-);
+router.post('/:id/play', protect, checkAudioPlayLimit, notesController.incrementPlay);
 
-// Track play
-router.post('/:id/play', protect, notesController.incrementPlay);
-
-// Track download  
-router.post('/:id/download', protect, notesController.incrementDownload);
+/**
+ * @route   POST /api/notes/:id/download
+ * @desc    Track download (premium only)
+ * @access  Private
+ */
+router.post('/:id/download', protect, requirePremium, notesController.incrementDownload);
 
 module.exports = router;
