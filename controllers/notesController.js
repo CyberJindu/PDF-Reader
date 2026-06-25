@@ -50,7 +50,7 @@ exports.getAllNotes = async (req, res, next) => {
 };
 
 /**
- * @desc    Get single note by ID
+ * @desc    Get single note by ID (full summary — premium only)
  * @route   GET /api/notes/:id
  * @access  Private
  */
@@ -67,17 +67,6 @@ exports.getNote = async (req, res, next) => {
         message: 'Note not found'
       });
     }
-
-    // Increment play count (for analytics)
-    //note.plays = (note.plays || 0) + 1;
-    //await note.save();
-
-    // ✅ UPDATE USER STATS - Increment total streams
-    await User.findByIdAndUpdate(userId, {
-      $inc: { 'stats.totalStreams': 1 },
-      $set: { 'stats.lastActive': new Date() }
-    });
-    logger.info(`Audio stream recorded for user ${userId} - totalStreams incremented`);
 
     res.json({
       success: true,
@@ -162,12 +151,8 @@ exports.deleteNote = async (req, res, next) => {
       });
     }
 
-    // Delete from Cloudinary (handled in uploadController delete)
-    // Here we just remove from database
-
     await note.deleteOne();
 
-    // ✅ UPDATE USER STATS - Decrement totalSummaries when note is deleted
     await User.findByIdAndUpdate(userId, {
       $inc: { 'stats.totalSummaries': -1 },
       $set: { 'stats.lastActive': new Date() }
@@ -284,7 +269,6 @@ exports.getAllTags = async (req, res, next) => {
 
     const notes = await Note.find({ user: userId }).select('tags');
     
-    // Extract unique tags
     const tags = [...new Set(notes.flatMap(note => note.tags))].sort();
 
     res.json({
@@ -297,10 +281,8 @@ exports.getAllTags = async (req, res, next) => {
   }
 };
 
-
-
 /**
- * @desc    Increment download count for a note
+ * @desc    Increment download count for a note (premium only)
  * @route   POST /api/notes/:id/download
  * @access  Private
  */
@@ -318,20 +300,17 @@ exports.incrementDownload = async (req, res, next) => {
       });
     }
 
-    // 1. Increment download count on Note
     note.downloads = (note.downloads || 0) + 1;
     await note.save();
 
-    // 2. Update User aggregate profile statistics
     await User.findByIdAndUpdate(userId, {
       $inc: { 'stats.totalDownloads': 1 },
       $set: { 'stats.lastActive': new Date() }
     });
 
-    // 3. CREATE TRACKING ENTRY FOR CHARTS <-- FIXED
     await Analytics.create({
       userId,
-      action: 'audio_downloaded', // Matches the enum in Analytics.js and trends chart pipeline
+      action: 'audio_downloaded',
       metadata: {
         noteId: id,
         fileSize: note.fileSize || 0
@@ -370,20 +349,17 @@ exports.incrementPlay = async (req, res, next) => {
       });
     }
 
-    // 1. Increment play count on Note
     note.plays = (note.plays || 0) + 1;
     await note.save();
 
-    // 2. Update User profile aggregate statistics
     await User.findByIdAndUpdate(userId, {
       $inc: { 'stats.totalStreams': 1 },
       $set: { 'stats.lastActive': new Date() }
     });
 
-    // 3. CREATE TRACKING ENTRY FOR CHARTS <-- FIXED
     await Analytics.create({
       userId,
-      action: 'audio_played', // Matches the enum in Analytics.js and trends chart pipeline
+      action: 'audio_played',
       metadata: {
         noteId: id
       }
